@@ -1,0 +1,22 @@
+﻿{
+    CheckIntervalMinutes            : 30,
+    MailAccounts: [
+	{
+		Name                            : "Logs",
+        ImapServer					    : "INSERT_YOUR_IMAP_SERVERNAME_HERE",
+        ImapPort					    : "993",
+        ImapSecurity				    : "Ssl", // Ssl, StartTls, StartTlsWhenAvailable, None
+        Username					    : "ENTER_YOUR_ACCOUNT_HERE____TYPICALLY_YOUR_EMAIL_ADDRESS",
+        Password					    : "ENTER_YOUR_MAILBOX_PASSWORD_HERE",
+		InboxFolderName                 : "inbox",
+		SenderName						: "INSERT_THE_SENDER_NAME_OF_EMAILS_YOU_WANT_TO_MONITOR",
+		SenderName						: "john.doe@outlook.com",
+		SenderSubjectWhitelist		    : [],
+	}
+    ],
+	
+    HomenetServer                       : "",
+    HomenetUsername                     : "",
+    HomenetPassword                     : "",
+    HomenetTimeout                      : 0,
+}

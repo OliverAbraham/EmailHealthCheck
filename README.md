@@ -1,6 +1,6 @@
 # IMAP HEALTH CHECK
 
-![](https://img.shields.io/github/downloads/oliverabraham/ImapHealthCheck/total) ![](https://img.shields.io/github/license/oliverabraham/ImapHealthCheck) ![](https://img.shields.io/github/languages/count/oliverabraham/ImapHealthCheck) ![GitHub Repo stars](https://img.shields.io/github/stars/oliverabraham/ImapHealthCheck?label=repo%20stars) ![GitHub Repo stars](https://img.shields.io/github/stars/oliverabraham?label=user%20stars)
+![](https://img.shields.io/github/downloads/oliverabraham/EmailHealthCheck/total) ![](https://img.shields.io/github/license/oliverabraham/EmailHealthCheck) ![](https://img.shields.io/github/languages/count/oliverabraham/EmailHealthCheck) ![GitHub Repo stars](https://img.shields.io/github/stars/oliverabraham/EmailHealthCheck?label=repo%20stars) ![GitHub Repo stars](https://img.shields.io/github/stars/oliverabraham?label=user%20stars)
 
 
 ## OVERVIEW
@@ -36,7 +36,7 @@ This project is licensed under Apache license.
 
 
 ## SOURCE CODE
-https://www.github.com/OliverAbraham/ImapHealthCheck
+https://www.github.com/OliverAbraham/EmailHealthCheck
 
 
 ## AUTHOR

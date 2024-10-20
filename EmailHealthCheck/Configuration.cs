@@ -1,7 +1,7 @@
 ﻿using NLog;
 using System.Data;
 
-namespace ImapSpamfilter;
+namespace EmailHealthCheck;
 
 public class Configuration
 {

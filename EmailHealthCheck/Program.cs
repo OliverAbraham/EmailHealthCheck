@@ -7,7 +7,7 @@ using Abraham.HomenetBase.Connectors;
 using Abraham.HomenetBase.Models;
 using Abraham.MQTTClient;
 
-namespace ImapSpamfilter
+namespace EmailHealthCheck
 {
     /// <summary>
     /// EMAIL HEALTH CHECK

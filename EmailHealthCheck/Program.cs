@@ -1,26 +1,32 @@
-﻿using Abraham.ProgramSettingsManager;
-using Abraham.Scheduler;
-using NLog.Web;
+﻿using NLog.Web;
 using CommandLine;
+using Abraham.ProgramSettingsManager;
+using Abraham.Scheduler;
 using Abraham.Mail;
 using Abraham.HomenetBase.Connectors;
 using Abraham.HomenetBase.Models;
+using Abraham.MQTTClient;
 
 namespace ImapSpamfilter
 {
     /// <summary>
-    /// IMAP HEALTH CHECK
+    /// EMAIL HEALTH CHECK
     /// 
-    /// This is a monitor that searches for the newest email from a person.
-    /// It monitors the age of that email, verifying we get a health signal from that person.
+    /// This is a monitor that searches for the newest email from a person or service.
+    /// It monitors the age of that email, verifying we get a health signal from that person/service.
+    ///
+    ///
+    /// EXAMPLES
+    /// - You want to monitor a backup where you only have emails sent to you. My app can search for the newest email in your inbox, then update your MQTT broker.
+    /// - You're getting emails from a person oder service on a regular basis. You want to monitor these and update your MQTT target.
     /// 
     /// 
-    /// FUNCTIONING
-    /// 
-    /// It will connect periodcally to your imap mail server and check every new(unread) email.
-    /// If will select emails from a certain person, optionally having some whitelisted word in subject.
+    /// FUNCTION
+    /// The program will connect periodically to your imap mail server and check every new(unread) email.
+    /// It will select emails from a certain person (sender).
+    /// You can filter emails additionally  by subject, providing a whitelist of words. 
+    /// Only those emails containing one of the words in subject will be selected.
     /// Out of these emails, it will pick the newest one and calculate the age in days.
-    /// 
     /// The configuration must be made in the appsettings.hjson file.
     ///     
     /// 
@@ -37,7 +43,7 @@ namespace ImapSpamfilter
     /// 
     /// 
     /// SOURCE CODE
-    /// https://www.github.com/OliverAbraham/ImapHealthCheck
+    /// https://www.github.com/OliverAbraham/EmailHealthCheck
     /// 
     /// </summary>
     public class Program
@@ -48,8 +54,8 @@ namespace ImapSpamfilter
         private static Configuration                         _config                            = new();
         private static NLog.Logger                           _logger                            = NLogBuilder.ConfigureNLog("").GetCurrentClassLogger();
         private static Scheduler?                            _scheduler;
-        private static DateTime                              _spamfilterConfigFileLastWriteTime = default(DateTime);
-        private static bool                                  _thisIsTheFirstTime                = true;
+        private static DataObjectsConnector                  _homenetClient;
+        private static MQTTClient                            _mqttClient;
         #endregion
 
 
@@ -133,7 +139,7 @@ namespace ImapSpamfilter
             //.UsePathRelativeToSpecialFolder(_commandLineOptions.ConfigurationFile)
             .Load();
             _config = _programSettingsManager.Data;
-            Console.WriteLine($"Loaded configuration file '{_programSettingsManager.ConfigFilename}'");
+            Console.WriteLine($"Loaded configuration file '{_programSettingsManager.ConfigPathAndFilename}'");
         }
 
         private static void ValidateConfiguration()
@@ -218,7 +224,7 @@ namespace ImapSpamfilter
         {
             try
             {
-                ReadEmailsFromInboxAndAnalyze();
+                ReadEmailsFromInboxesAndAnalyze();
             }
             catch (Exception ex) 
             {
@@ -230,35 +236,62 @@ namespace ImapSpamfilter
 
 
         #region ------------- Domain logic --------------------------------------------------------
-        private static void ReadEmailsFromInboxAndAnalyze()
+        private static void ReadEmailsFromInboxesAndAnalyze()
         {
-            var account = _config.MailAccounts[0];
+            foreach (var account in _config.MailAccounts)
+                ReadEmailsFromInboxAndAnalyze(account);
+        }
 
-            Console.Write("Reading the inbox...");
+        private static void ReadEmailsFromInboxAndAnalyze(MailAccount account)
+        {
+            _logger.Debug("Reading the inbox...");
             var emails = ReadAllEmailsFromInbox(account);
-            Console.WriteLine($"{emails.Count} emails");
+            _logger.Debug($"{emails.Count} emails");
 
             emails = emails.Where(x => MailComesFromThePersonMonitoredPerson(x, account)).ToList();
 
             // take only the emails containing some words
             // (in my case "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday")
-            if (account.SenderSubjectWhitelist.Count > 0) 
+            if (account.SenderSubjectWhitelist.Count > 0)
                 emails = emails.Where(x => SubjectContainsOneWhitelistedWord(x, account)).ToList();
 
             emails = emails.OrderByDescending(x => x.Msg.Date).ToList();
 
-            Console.WriteLine($"Newest 5 emails:");
-            foreach(var email in emails.Take(5))
-                Console.WriteLine($"- {email.Msg.Date.ToString("yyyy-MM-dd hh:MM")}   {email.Msg.Subject}");
+            _logger.Debug($"Newest 5 emails:");
+            foreach (var email in emails.Take(5))
+                _logger.Debug($"- {email.Msg.Date.ToString("yyyy-MM-dd hh:MM")}   {email.Msg.Subject}");
 
             var newestEmail = emails.First();
 
             var age = DateTime.Now - newestEmail.Msg.Date;
             var ageInDays = age.TotalDays;
 
-            Console.WriteLine($"Newest Email is {ageInDays:N1} days old");
+            _logger.Debug($"Newest Email is {ageInDays:N1} days old");
 
-            SendResultToHomeAutomationServer("MONITOR_DIETER", ((int)ageInDays).ToString());
+            var result = MapAgeToDescriptionUsingRatings(ageInDays);
+
+            _logger.Info($"Reading from inbox {account.Name} found newest email of age {ageInDays:N1} days, final rating {result}");
+
+            SendResultToHomeAutomationServer(account.MqttTopicName, result);
+        }
+
+        private static string MapAgeToDescriptionUsingRatings(double ageInDays)
+        {
+            int age = (int)ageInDays;
+            if (_config.Ratings.Any())
+                return RateAge(age, _config.Ratings);
+            else
+                return age.ToString();
+        }
+
+        private static string RateAge(int age, List<Rating> ratings)
+        {
+            foreach(var rating in ratings)
+            {
+                if ((int)age <= rating.AgeDays)
+                    return rating.Result;
+            }   
+            return "rating error";
         }
 
         private static bool MailComesFromThePersonMonitoredPerson(Message mail, MailAccount account)
@@ -301,36 +334,136 @@ namespace ImapSpamfilter
 
 
 
-        #region ------------- Home automation server ----------------------------------------------
+        #region ------------- Implementation ------------------------------------------------------
+        #region Sending results
         private static void SendResultToHomeAutomationServer(string dataObjectName, string value)
+        {
+            SendOutToHomenet(value, dataObjectName);
+            SendOutToMQTT(value, dataObjectName);
+        }
+
+        private static void SendOutToHomenet(string value, string dataObjectName)
         {
             try
             {
-                Log("Connecting to homenet server...");
-                var _homenetClient = new DataObjectsConnector(_config.HomenetServer, _config.HomenetUsername, _config.HomenetPassword, _config.HomenetTimeout);
-                Log("Connect successful");
-
-                var existingValue = _homenetClient.TryGet(dataObjectName);
-                if (existingValue?.Value == value)
+                if (HomenetServerIsConfigured())
                 {
-                    Log($"We don't update, because the existing value is the same");
-                    return;
-			    }
-
-                Log($"Sending new value {value} to the server...");
-                var success = _homenetClient.UpdateValueOnly(new DataObject(){ Name=dataObjectName, Value=value});
-                Log($"{(success ? "ok" : "send error!")}");
+                    _logger.Debug($"");
+                    _logger.Debug($"Sending out result to Home automation target");
+                    if (!ConnectToHomenetServer())
+                        _logger.Error("Error connecting to homenet server.");
+                    else
+                        UpdateDataObject(value, dataObjectName);
+                }
             }
             catch (Exception ex)
             {
-                Log("Error connecting to homenet server or sending a value change:\n" + ex.ToString());
+                _logger.Error($"SendOutToHomenet: {ex}");
             }
         }
 
-        private static void Log(string message) 
+        private static void SendOutToMQTT(string value, string mqttTopic)
         {
-            Console.WriteLine(message);
+            try
+            {
+                if (MqttBrokerIsConfigured())
+                {
+                    _logger.Debug($"");
+                    _logger.Debug($"Sending out group result to MQTT target");
+                    _logger.Debug("Connecting to MQTT broker...");
+                    if (!ConnectToMqttBroker())
+                        _logger.Error("Error connecting to MQTT broker.");
+                    else
+                        UpdateTopics(value, mqttTopic);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.Error($"SendOutToMQTT: {ex}");
+            }
         }
+        #endregion
+
+        #region Home automation server target
+        private static bool HomenetServerIsConfigured()
+        {
+            return !string.IsNullOrWhiteSpace(_config.HomenetServerURL) && 
+                   !string.IsNullOrWhiteSpace(_config.HomenetUsername) && 
+                   !string.IsNullOrWhiteSpace(_config.HomenetPassword);
+        }
+
+        private static bool ConnectToHomenetServer()
+        {
+            _logger.Debug("Connecting to homenet server...");
+            try
+            {
+                _homenetClient = new DataObjectsConnector(_config.HomenetServerURL, _config.HomenetUsername, _config.HomenetPassword, _config.HomenetTimeout);
+                _logger.Debug("Connect successful");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                _logger.Error("Error connecting to homenet server:\n" + ex.ToString());
+                return false;
+            }
+        }
+
+        private static void UpdateDataObject(string value, string dataObjectName)
+        {
+            if (_homenetClient is null)
+                return;
+
+            bool success = _homenetClient.UpdateValueOnly(new DataObject() { Name = dataObjectName, Value = value});
+            if (success)
+                _logger.Info($"Homeset server topic {dataObjectName} updated with value {value}");
+            else
+                _logger.Error($"server update error! {_homenetClient.LastError}");
+        }
+        #endregion
+
+        #region MQTT target
+        private static bool MqttBrokerIsConfigured()
+        {
+            return !string.IsNullOrWhiteSpace(_config.MqttServerURL) && 
+                   !string.IsNullOrWhiteSpace(_config.MqttUsername) && 
+                   !string.IsNullOrWhiteSpace(_config.MqttPassword);
+        }
+
+        private static bool ConnectToMqttBroker()
+        {
+            _logger.Debug("Connecting to MQTT broker...");
+            try
+            {
+                _mqttClient = new MQTTClient()
+                    .UseUrl(_config.MqttServerURL)
+                    .UseUsername(_config.MqttUsername)
+                    .UsePassword(_config.MqttPassword)
+                    .UseTimeout(_config.MqttTimeout)
+                    .UseLogger(delegate(string message) { _logger.Debug(message); })
+                    .Build();
+
+                _logger.Debug("Created MQTT client");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                _logger.Error("Error connecting to MQTT broker:\n" + ex.ToString());
+                return false;
+            }
+        }
+
+        private static void UpdateTopics(string value, string topicName)
+        {
+            if (_mqttClient is null || value is null)
+                return;
+
+            var result = _mqttClient.Publish(topicName, value);
+            if (result.IsSuccess)
+                _logger.Info($"MQTT topic {topicName} updated with value {value}");
+            else
+                _logger.Error($"MQTT topic update error! {result.ReasonString}");
+        }
+        #endregion
         #endregion
     }
 }

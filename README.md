@@ -5,14 +5,22 @@
 
 ## OVERVIEW
 
-This is a monitor that searches for the newest email from a person.
-It monitors the age of that email, verifying we get a health signal from that person.
+This is a monitor that searches for the newest email from a person or service.
+It monitors the age of that email, verifying we get a health signal from that person/service.
+
+
+
+## EXAMPLES
+- You want to monitor a backup where you only have emails sent to you. My app can search for the newest email in your inbox, then update your MQTT broker.
+- You're getting emails from a person oder service on a regular basis. You want to monitor these and update your MQTT target.
+
 
 
 ## FUNCTION
-
-It will connect periodcally to your imap mail server and check every new(unread) email.
-If will select emails from a certain person, optionally having some whitelisted word in subject.
+The program will connect periodically to your imap mail server and check every new(unread) email.
+It will select emails from a certain person (sender).
+You can filter emails additionally  by subject, providing a whitelist of words. 
+Only those emails containing one of the words in subject will be selected.
 Out of these emails, it will pick the newest one and calculate the age in days.
 
 The configuration must be made in the appsettings.hjson file.
@@ -26,7 +34,6 @@ An installer is not provided. Build the application or download the latest relea
 
 
 ## CONFIGURATION
-
 Just edit the file appsettings.hjson. 
 
 

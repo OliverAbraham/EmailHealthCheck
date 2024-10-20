@@ -1,5 +1,7 @@
 ﻿{
     CheckIntervalMinutes            : 30,
+	
+	// Give one or more email inboxes you want to check
     MailAccounts: [
 	{
 		Name                            : "Logs",
@@ -12,11 +14,39 @@
 		SenderName						: "INSERT_THE_SENDER_NAME_OF_EMAILS_YOU_WANT_TO_MONITOR",
 		SenderName						: "john.doe@outlook.com",
 		SenderSubjectWhitelist		    : [],
+		MqttTopicName           		: "MONITOR_EMAIL",
 	}
     ],
 	
-    HomenetServer                       : "",
-    HomenetUsername                     : "",
-    HomenetPassword                     : "",
-    HomenetTimeout                      : 0,
+    // Homenet server settings. Leave empty if not used
+    HomenetServerURL        : "",
+    HomenetUsername         : "",
+    HomenetPassword         : "",
+    HomenetTimeout          : 0,
+    
+    // MQTT broker settings. Leave empty if not used
+    MqttServerURL           : "<MQTT BROKER URL>",
+    MqttUsername            : "<MQTT BROKER USERNAME>",
+    MqttPassword            : "<MQTT BROKER PASSWORD>",
+    MqttTimeout             : 30,
+	
+	
+	// this will automatically map the age in days to descriptions.
+	// leave this empty to simply send the age as a number of days 
+	// like this:
+	// Ratings: []
+	Ratings: [
+		{ AgeDays:       0, Result : "OK"  },
+		{ AgeDays:       1, Result : "1d"  },
+		{ AgeDays:       2, Result : "2d"  },
+		{ AgeDays:       3, Result : "3d"  },
+		{ AgeDays:       4, Result : "4d"  },
+		{ AgeDays:       5, Result : "5d"  },
+		{ AgeDays:       6, Result : "6d"  },
+		{ AgeDays:       7, Result : "1w"  },
+		{ AgeDays:      14, Result : "2w"  },
+		{ AgeDays:      21, Result : "3w"  },
+		{ AgeDays:      28, Result : "4w"  },
+		{ AgeDays: 9999999, Result : "old" }
+	]
 }

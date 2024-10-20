@@ -276,7 +276,7 @@ namespace EmailHealthCheck
             // (in my case "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday")
             if (account.SenderSubjectWhitelist.Count > 0)
             {
-                _logger.Debug($"Filtering by subject whitelist...");
+                _logger.Debug($"Filtering by subject whitelist: {string.Join(',', account.SenderSubjectWhitelist)}");
                 emails = emails.Where(x => SubjectContainsOneWhitelistedWord(x, account)).ToList();
                 _logger.Debug($"{emails.Count} emails left");
             }

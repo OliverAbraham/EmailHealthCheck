@@ -6,6 +6,7 @@ using Abraham.Mail;
 using Abraham.HomenetBase.Connectors;
 using Abraham.HomenetBase.Models;
 using Abraham.MQTTClient;
+using Microsoft.AspNetCore.Mvc.RazorPages;
 
 namespace EmailHealthCheck
 {
@@ -244,35 +245,70 @@ namespace EmailHealthCheck
 
         private static void ReadEmailsFromInboxAndAnalyze(MailAccount account)
         {
-            _logger.Debug("Reading the inbox...");
-            var emails = ReadAllEmailsFromInbox(account);
-            _logger.Debug($"{emails.Count} emails");
+            _logger.Debug("");
+            _logger.Debug("");
+            _logger.Debug($"----------------- Account {account.Name} -------------------------------------");
 
+            var emails = ReadAllEmailsFromInbox(account);
+
+            emails = ApplyFilters(account, emails);
+
+            double ageInDays = ComputeAge(ref emails);
+
+            var result = MapAgeToDescriptionUsingRatings(ageInDays);
+
+            if (emails.Any())
+                _logger.Info($"Reading from inbox {account.Name} found newest email of age {ageInDays:N1} days, final rating is '{result}'");
+            else
+                _logger.Warn($"Reading from inbox {account.Name} found no emails!      age {ageInDays:N1} days, final rating is '{result}'");
+
+            SendResultToHomeAutomationServer(account.MqttTopicName, result);
+        }
+
+        private static List<Message> ApplyFilters(MailAccount account, List<Message> emails)
+        {
+            _logger.Debug($"Filtering by sender...");
             emails = emails.Where(x => MailComesFromThePersonMonitoredPerson(x, account)).ToList();
+            _logger.Debug($"{emails.Count} emails left");
+
 
             // take only the emails containing some words
             // (in my case "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday")
             if (account.SenderSubjectWhitelist.Count > 0)
+            {
+                _logger.Debug($"Filtering by subject whitelist...");
                 emails = emails.Where(x => SubjectContainsOneWhitelistedWord(x, account)).ToList();
+                _logger.Debug($"{emails.Count} emails left");
+            }
 
-            emails = emails.OrderByDescending(x => x.Msg.Date).ToList();
+            return emails;
+        }
 
-            _logger.Debug($"Newest 5 emails:");
-            foreach (var email in emails.Take(5))
-                _logger.Debug($"- {email.Msg.Date.ToString("yyyy-MM-dd hh:MM")}   {email.Msg.Subject}");
+        private static double ComputeAge(ref List<Message> emails)
+        {
+            double ageInDays;
+            if (emails.Any())
+            {
+                emails = emails.OrderByDescending(x => x.Msg.Date).ToList();
 
-            var newestEmail = emails.First();
+                _logger.Debug($"Newest 5 emails:");
+                foreach (var email in emails.Take(5))
+                    _logger.Debug($"- {email.Msg.Date.ToString("yyyy-MM-dd hh:MM")}   {email.Msg.Subject}");
 
-            var age = DateTime.Now - newestEmail.Msg.Date;
-            var ageInDays = age.TotalDays;
+                var newestEmail = emails.First();
 
-            _logger.Debug($"Newest Email is {ageInDays:N1} days old");
+                var age = DateTime.Now - newestEmail.Msg.Date;
+                ageInDays = age.TotalDays;
 
-            var result = MapAgeToDescriptionUsingRatings(ageInDays);
+                _logger.Debug($"Newest Email is {ageInDays:N1} days old");
+            }
+            else
+            {
+                ageInDays = 999999.0;
+                _logger.Debug($"No emails found, taking age {ageInDays:N1}");
+            }
 
-            _logger.Info($"Reading from inbox {account.Name} found newest email of age {ageInDays:N1} days, final rating {result}");
-
-            SendResultToHomeAutomationServer(account.MqttTopicName, result);
+            return ageInDays;
         }
 
         private static string MapAgeToDescriptionUsingRatings(double ageInDays)
@@ -314,6 +350,8 @@ namespace EmailHealthCheck
 
         private static List<Message> ReadAllEmailsFromInbox(MailAccount account)
         {
+            _logger.Debug("Reading the inbox...");
+
             var security = account.ImapSecurity switch {
                 "Ssl"                   => Security.Ssl,
                 "StartTls"              => Security.StartTls,
@@ -328,6 +366,8 @@ namespace EmailHealthCheck
 				.Open();
 
 			var emails = _client.ReadUnreadEmailsFromInbox();
+
+            _logger.Debug($"{emails.Count} unread emails");
             return emails;
         }
         #endregion
@@ -348,7 +388,6 @@ namespace EmailHealthCheck
             {
                 if (HomenetServerIsConfigured())
                 {
-                    _logger.Debug($"");
                     _logger.Debug($"Sending out result to Home automation target");
                     if (!ConnectToHomenetServer())
                         _logger.Error("Error connecting to homenet server.");
@@ -368,7 +407,6 @@ namespace EmailHealthCheck
             {
                 if (MqttBrokerIsConfigured())
                 {
-                    _logger.Debug($"");
                     _logger.Debug($"Sending out group result to MQTT target");
                     _logger.Debug("Connecting to MQTT broker...");
                     if (!ConnectToMqttBroker())

@@ -15,7 +15,7 @@
 
   <ItemGroup>
     <PackageReference Include="Abraham.HomenetBase" Version="1.0.2" />
-    <PackageReference Include="Abraham.Mail" Version="1.0.6" />
+    <PackageReference Include="Abraham.Mail" Version="1.0.8" />
     <PackageReference Include="Abraham.MQTTClient" Version="1.0.7" />
     <PackageReference Include="Abraham.ProgramSettingsManager" Version="1.0.2" />
     <PackageReference Include="Abraham.Scheduler" Version="1.0.0" />

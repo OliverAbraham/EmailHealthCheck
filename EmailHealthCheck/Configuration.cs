@@ -45,6 +45,9 @@ public class MailAccount
     public string       SenderName             { get; set; }
     public List<string> SenderSubjectWhitelist { get; set; } = new List<string>();
     public string       MqttTopicName          { get; set; }
+    public bool         MarkFoundEmailRead     { get; set; }
+    public bool         MoveEmailToFolder      { get; set; }
+    public string       DestinationFolder      { get; set; }
 }
 
 public class Rating

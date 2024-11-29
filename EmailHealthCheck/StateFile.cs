@@ -15,16 +15,16 @@
     public class State
     {
         public string MqttTopic { get; set; }
-        public double AgeInDays { get; set; }
+        public DateTimeOffset Date { get; set; }
 
         public State()
         {
         }
 
-        public State(string mqttTopic, double ageInDays)
+        public State(string mqttTopic, DateTimeOffset date)
         {
             MqttTopic = mqttTopic;
-            AgeInDays = ageInDays;
+            Date = date;
         }
     }
 }

@@ -26,7 +26,7 @@ namespace EmailHealthCheck
     /// FUNCTION
     /// The program will connect periodically to your imap mail server and check every new(unread) email.
     /// It will select emails from a certain person (sender).
-    /// You can filter emails additionally  by subject, providing a whitelist of words. 
+    /// You can apply another filter by subject, providing a whitelist of words. 
     /// Only those emails containing one of the words in subject will be selected.
     /// Out of these emails, it will pick the newest one and calculate the age in days.
     /// The configuration must be made in the appsettings.hjson file.
@@ -48,16 +48,16 @@ namespace EmailHealthCheck
     /// https://www.github.com/OliverAbraham/EmailHealthCheck
     /// 
     /// </summary>
-    public class Program
+    public partial class Program
     {
         #region ------------- Fields --------------------------------------------------------------
-	    private static CommandLineOptions                    _commandLineOptions                = new CommandLineOptions();
-        private static ProgramSettingsManager<Configuration> _programSettingsManager            = new ProgramSettingsManager<Configuration>();
-        private static ProgramSettingsManager<StateFile>     _stateFileManager                  = new ProgramSettingsManager<StateFile>();
-        private static StateFile                             _savedStates                       = new();
-        private static Configuration                         _config                            = new();
-        private static NLog.Logger                           _logger                            = NLogBuilder.ConfigureNLog("").GetCurrentClassLogger();
+	    private static CommandLineOptions                    _commandLineOptions     = new CommandLineOptions();
+        private static ProgramSettingsManager<Configuration> _programSettingsManager = new ProgramSettingsManager<Configuration>();
+        private static Configuration                         _config                 = new();
+        private static NLog.Logger                           _logger                 = NLogBuilder.ConfigureNLog("").GetCurrentClassLogger();
         private static Scheduler?                            _scheduler;
+        private static IImapClient                           _imapClient;
+        private static EmailManager                          _manager;
         private static DataObjectsConnector                  _homenetClient;
         private static MQTTClient                            _mqttClient;
         #endregion
@@ -109,7 +109,7 @@ namespace EmailHealthCheck
 	        ParseCommandLineArguments();
     	    ReadConfiguration();
             ValidateConfiguration();
-            ReadStateFile();
+            InitDomainLogic();
             InitLogger();
             PrintGreeting();
             LogConfiguration();
@@ -119,6 +119,23 @@ namespace EmailHealthCheck
             Console.ReadKey();
 
             StopScheduler();
+        }
+
+        private static void InitDomainLogic()
+        {
+            _imapClient = new Abraham.Mail.ImapClient();
+            
+            _manager = new EmailManager()
+                .UseImapClient(_imapClient)
+                .UseErrorLogger(_logger.Error)
+                .UseWarnLogger (_logger.Warn)
+                .UseInfoLogger (_logger.Info)
+                .UseDebugLogger(_logger.Debug)
+                .UseStateFile(_commandLineOptions.StateFile)
+                .UseRatings(_config.Ratings)
+                .UseHomeAutomationConnector(HomeAutomationConnector);
+
+            _manager.ReadStateFile();
         }
         #endregion
 
@@ -165,42 +182,6 @@ namespace EmailHealthCheck
         private static void SaveConfiguration()
         {
             _programSettingsManager.Save(_programSettingsManager.Data);
-        }
-        #endregion
-
-
-
-        #region ------------- State file ---------------------------------------------------------
-	    private static void ReadStateFile()
-        {
-            try
-            {
-                // ATTENTION: When loading fails, you probably forgot to set the properties of appsettings.hjson to "copy if newer"!
-                // ATTENTION: or you have an error in your json file
-
-	            _stateFileManager = new ProgramSettingsManager<StateFile>()
-                    .UseFilename(Path.GetFileName(_commandLineOptions.StateFile));
-
-                _stateFileManager
-                    .UseFullPathAndFilename(_commandLineOptions.StateFile)
-                    .Load();
-                _savedStates = _stateFileManager.Data;
-                Console.WriteLine($"Loaded saved state from file '{_commandLineOptions.StateFile}'");
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Failed loading saved state from file '{_commandLineOptions.StateFile}'.");
-                Console.WriteLine($"Reason: {ex}");
-            }
-        }
-
-        private static void SaveStateFile()
-        {
-            _stateFileManager.Data = _savedStates;
-            //_stateFileManager.Save(_stateFileManager.Data);
-
-            var json = JsonConvert.SerializeObject(_stateFileManager.Data);
-            File.WriteAllText(_stateFileManager.ConfigPathAndFilename, json);
         }
         #endregion
 
@@ -274,7 +255,8 @@ namespace EmailHealthCheck
         {
             try
             {
-                ReadEmailsFromInboxesAndAnalyze();
+                _manager.ProcessAllEmailAccounts(_config.MailAccounts);
+                _manager.SaveStateFile();
             }
             catch (Exception ex) 
             {
@@ -285,312 +267,14 @@ namespace EmailHealthCheck
 
 
 
-        #region ------------- Domain logic --------------------------------------------------------
-        private static void ReadEmailsFromInboxesAndAnalyze()
-        {
-            foreach (var account in _config.MailAccounts)
-                ReadEmailsFromInboxAndAnalyze(account);
-
-            SaveStateFile();
-        }
-
-        private static void ReadEmailsFromInboxAndAnalyze(MailAccount account)
-        {
-            LogAccountName(account);
-
-            (var client, var inboxFolder, var destinationFolder) = OpenMailAccountAndLocateTwoFolders(account);
-            if (AccountCannotBeOpened(client))
-                return;
-
-            try
-            {
-                if (InboxFolderCannotBeFound(account, inboxFolder))
-                    return;
-
-                var emails = ReadAllEmailsFromInbox(client, inboxFolder, account);
-
-                emails = ApplyFilters(account, emails);
-
-                (var foundEmail, var ageInDays, var newestEmail) = TryToFindEmailAndComputeAge(ref emails);
-
-                if (WeHaveANewerResultInSavedState(account, ageInDays, out State? savedState))
-                    return;
-
-                // OK, we don't have a newer age. Now we go ahead and update the Home automation server.
-                SendResultToServer(account, foundEmail, ageInDays);
-
-                SaveTheState(foundEmail, account.MqttTopicName, ageInDays, savedState);
-
-                MarkEmailRead(account, client, inboxFolder, foundEmail, newestEmail);
-
-                MoveEmailToDestinationFolder(account, client, inboxFolder, destinationFolder, foundEmail, newestEmail);
-            }
-            finally
-            {
-                client.Close();
-            }
-        }
-
-        private static void LogAccountName(MailAccount account)
-        {
-            _logger.Debug("");
-            _logger.Debug("");
-            _logger.Debug($"----------------- Account {account.Name} -------------------------------------");
-        }
-
-        private static bool AccountCannotBeOpened(ImapClient? client)
-        {
-            if (client is null)
-            {
-                _logger.Info($"Cannot open Email account. Please check your settings.");
-                return true;
-            }
-            else
-            {
-                return false;
-            }
-        }
-
-        private static (ImapClient, IMailFolder, IMailFolder) OpenMailAccountAndLocateTwoFolders(MailAccount account)
-        {
-            _logger.Debug("Opening mail account and locating the folders...");
-
-            var security = account.ImapSecurity switch {
-                "Ssl"                   => Security.Ssl,
-                "StartTls"              => Security.StartTls,
-                "StartTlsWhenAvailable" => Security.StartTlsWhenAvailable,
-                _                       => Security.None
-            };
-
-			var client = new Abraham.Mail.ImapClient()
-				.UseHostname(account.ImapServer)
-				.UseSecurityProtocol(security)
-				.UseAuthentication(account.Username, account.Password)
-                .Open();
-
-            if (client is null)
-                return (null, null, null);
-
-
-            IMailFolder inboxFolder;
-            try
-            {
-                inboxFolder = client.GetFolderByName(account.InboxFolderName);
-                if (inboxFolder is null)
-                    throw new Exception();
-            }
-            catch (Exception ex)
-            {
-                _logger.Error($"Error getting the folder named '{account.InboxFolderName}' from your imap server. Please check your settings.");
-                return (client, null, null);
-            }
-
-
-            IMailFolder destinationFolder;
-            try
-            {
-                destinationFolder = client.GetFolderByName(account.DestinationFolder);
-                if (destinationFolder is null)
-                    throw new Exception();
-            }
-            catch (Exception ex)
-            {
-                _logger.Warn($"The folder named '{account.DestinationFolder}' does not exist.");
-
-                _logger.Warn($"The folder named '{account.DestinationFolder}' does not exist. Creating it now.");
-                client.CreateFolder(account.DestinationFolder);
-
-                return (client, inboxFolder, null);
-            }
-
-            return (client, inboxFolder, destinationFolder);
-        }
-
-        private static bool InboxFolderCannotBeFound(MailAccount account, IMailFolder? inboxFolder)
-        {
-            if (inboxFolder is null)
-            {
-                _logger.Info($"Cannot find inbox folder named '{account.InboxFolderName}' Please check your settings.");
-                return true;
-            }
-            else
-            {
-                return false;
-            }
-        }
-
-        private static bool WeHaveANewerResultInSavedState(MailAccount account, double ageInDays, out State? savedState)
-        {
-            // Before we update the Homeautomation server,
-            // We check if we've got a newer result in our state file.
-            // If so, it means that we've got a newer email in the index, found it, and meanwhile the user has deleted or moved the email.
-            // But we keep that age, to avoid saying "found no emails"
-
-            savedState = _savedStates.States.FirstOrDefault(x => x.MqttTopic == account.MqttTopicName);
-            bool weveGotANewerResult = (savedState is not null && savedState.AgeInDays < ageInDays);
-
-            if (weveGotANewerResult)
-            {
-                _logger.Info($"Reading from inbox gave age {ageInDays:N1} days, but we've already got a newer age of {savedState.AgeInDays} days. We keep that and don't update the Home automation server.");
-                return true;
-            }
-            else
-            {
-                return false;
-            }
-        }
-
-        private static void SaveTheState(bool foundEmail, string topic, double ageInDays, State? savedState)
-        {
-            // Finally we save this knowledge in our savedState.
-            if (foundEmail)
-            {
-                if (savedState is not null)
-                    savedState.AgeInDays = ageInDays;               // update existing entry
-                else
-                    _savedStates.States.Add(new State(topic, ageInDays));  // create new entry
-            }
-        }
-
-        private static void SendResultToServer(MailAccount account, bool foundEmail, double ageInDays)
-        {
-            var result = MapAgeToDescriptionUsingRatings(ageInDays);
-
-            if (foundEmail)
-                _logger.Info($"Reading from inbox {account.Name} found newest email of age {ageInDays:N1} days, final rating is '{result}'");
-            else
-                _logger.Warn($"Reading from inbox {account.Name} found no emails!      age {ageInDays:N1} days, final rating is '{result}'");
-            SendResultToHomeAutomationServer(account.MqttTopicName, result);
-        }
-
-        private static void MarkEmailRead(MailAccount account, ImapClient? client, IMailFolder? inboxFolder, bool foundEmail, Message newestEmail)
-        {
-            // If activated, we mark the email read.
-            if (foundEmail && account.MarkFoundEmailRead)
-            {
-                _logger.Info($"Marking email as read");
-                client.MarkAsRead(newestEmail, inboxFolder);
-            }
-        }
-
-        private static void MoveEmailToDestinationFolder(MailAccount account, ImapClient? client, IMailFolder? inboxFolder, IMailFolder? destinationFolder, bool foundEmail, Message newestEmail)
-        {
-            // If activated, we finally move the email that we've found to another folder (to keep the inbox clean)
-            var weShouldMoveEveryEmailWeFind = (account.MoveEmailToFolder && destinationFolder is not null);
-            var weCanMoveTheEmail = (foundEmail && destinationFolder is not null);
-            if (weShouldMoveEveryEmailWeFind && weCanMoveTheEmail)
-            {
-                _logger.Info($"Moving the email to folder '{account.DestinationFolder}'");
-                if (destinationFolder is null)
-                {
-                    _logger.Error($"Cannot find mail folder '{account.DestinationFolder}' in email account!");
-                }
-                else
-                {
-                    _logger.Error($"Moving the email to folder '{account.DestinationFolder}'");
-                    client.MoveEmailToFolder(newestEmail, inboxFolder, destinationFolder);
-                }
-            }
-        }
-
-        private static List<Message> ApplyFilters(MailAccount account, List<Message> emails)
-        {
-            _logger.Debug($"Filtering by sender...");
-            emails = emails.Where(x => MailComesFromThePersonMonitoredPerson(x, account)).ToList();
-            _logger.Debug($"{emails.Count} emails left");
-
-
-            // take only the emails containing some words
-            // (in my case "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday")
-            if (account.SenderSubjectWhitelist.Count > 0)
-            {
-                _logger.Debug($"Filtering by subject whitelist: {string.Join(',', account.SenderSubjectWhitelist)}");
-                emails = emails.Where(x => SubjectContainsOneWhitelistedWord(x, account)).ToList();
-                _logger.Debug($"{emails.Count} emails left");
-            }
-
-            return emails;
-        }
-
-        private static (bool, double, Message) TryToFindEmailAndComputeAge(ref List<Message> emails)
-        {
-            double ageInDays;
-            if (emails.Any())
-            {
-                emails = emails.OrderByDescending(x => x.Msg.Date).ToList();
-
-                _logger.Debug($"Newest 5 emails:");
-                foreach (var email in emails.Take(5))
-                    _logger.Debug($"- {email.Msg.Date.ToString("yyyy-MM-dd hh:MM")}   {email.Msg.Subject}");
-
-                var newestEmail = emails.First();
-
-                var age = DateTime.Now - newestEmail.Msg.Date;
-                ageInDays = age.TotalDays;
-
-                _logger.Debug($"Newest Email is {ageInDays:N1} days old");
-                return (true, ageInDays, newestEmail);
-            }
-            else
-            {
-                ageInDays = 999999.0;
-                _logger.Debug($"No emails found, taking age {ageInDays:N1}");
-                return (false, ageInDays, null);
-            }
-        }
-
-        private static string MapAgeToDescriptionUsingRatings(double ageInDays)
-        {
-            int age = (int)ageInDays;
-            if (_config.Ratings.Any())
-                return RateAge(age, _config.Ratings);
-            else
-                return age.ToString();
-        }
-
-        private static string RateAge(int age, List<Rating> ratings)
-        {
-            foreach(var rating in ratings)
-            {
-                if ((int)age <= rating.AgeDays)
-                    return rating.Result;
-            }   
-            return "rating error";
-        }
-
-        private static bool MailComesFromThePersonMonitoredPerson(Message mail, MailAccount account)
-        {
-            var sender = mail?.Msg?.From?.First().ToString().ToLower() ?? "";
-            return sender.Length > 0 && sender.Contains(account.SenderName);
-        }
-
-        private static bool SubjectContainsOneWhitelistedWord(Message mail, MailAccount account)
-        {
-            var subject = mail?.Msg?.Subject ?? "";
-            
-            foreach(var word in account.SenderSubjectWhitelist)
-            {
-                if (subject.Length > 0 && subject.Contains(word))
-                    return true;
-            }
-            return false;
-        }
-
-        private static List<Message> ReadAllEmailsFromInbox(ImapClient client, IMailFolder inboxFolder, MailAccount account)
-        {
-            _logger.Debug("Reading the inbox...");
-			
-            var emails = client.GetUnreadMessagesFromFolder(inboxFolder).ToList();
-            
-            _logger.Debug($"{emails.Count} unread emails");
-            return emails;
-        }
-        #endregion
-
-
-
-        #region ------------- Implementation ------------------------------------------------------
+        #region ------------- Home Automation Server communication --------------------------------
         #region Sending results
+
+        private static void HomeAutomationConnector(string topic, string value)
+        {
+            SendResultToHomeAutomationServer(topic, value);
+        }
+
         private static void SendResultToHomeAutomationServer(string dataObjectName, string value)
         {
             SendOutToHomenet(value, dataObjectName);

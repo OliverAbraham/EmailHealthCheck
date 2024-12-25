@@ -2,7 +2,7 @@
   "profiles": {
     "ImapSpamfilter": {
       "commandName": "Project",
-      "commandLineArgs": "--config C:\\Credentials\\EmailHealthCheck-appsettings.hjson"
+      "commandLineArgs": "--config C:\\Credentials\\EmailHealthCheck\\appsettings.hjson --statefile C:\\Credentials\\EmailHealthCheck\\state.json"
     },
     "Container (Dockerfile)": {
       "commandName": "Docker"

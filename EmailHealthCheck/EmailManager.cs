@@ -3,6 +3,7 @@ using Abraham.ProgramSettingsManager;
 using MailKit;
 using Newtonsoft.Json;
 using System.Runtime.CompilerServices;
+using System.Security.Principal;
 
 [assembly: InternalsVisibleToAttribute("EmailAccountManager.Tests")]
 
@@ -461,7 +462,7 @@ internal class EmailManager
         // But we keep that Date, to avoid saying "found no emails"
 
         var result = new Email();
-        var foundSavedState = _savedStates.States.FirstOrDefault(x => x.MqttTopic == account.MqttTopicName);
+        var foundSavedState = _savedStates.States.LastOrDefault(x => x.MqttTopic == account.MqttTopicName);
             
         bool weveGotANewerResult = (foundSavedState is not null && foundSavedState.Date > emailFromInbox.Date);
 
@@ -484,8 +485,9 @@ internal class EmailManager
     private void SaveTheState(Email inboxEmail, string topic, Email savedState)
     {
         // Finally we save this knowledge in our savedState.
-        if (WeHaveA(savedState))
-            UpdateEntry(inboxEmail, savedState);
+        var state = _savedStates.States.LastOrDefault(x => x.MqttTopic == topic);
+        if (state is not null)
+            UpdateEntry(inboxEmail, state);
         else
             AddANewEntry(inboxEmail, topic);
     }
@@ -495,10 +497,10 @@ internal class EmailManager
         return (savedState is not null && savedState.WasFound);
     }
 
-    private void UpdateEntry(Email inboxEmail, Email savedState)
+    private void UpdateEntry(Email inboxEmail, State state)
     {
-        savedState.Date = inboxEmail.Date;
-        savedState.AgeInDays = inboxEmail.AgeInDays;
+        if (inboxEmail.Date > state.Date)
+            state.Date = inboxEmail.Date;
     }
 
     private void AddANewEntry(Email inboxEmail, string topic)

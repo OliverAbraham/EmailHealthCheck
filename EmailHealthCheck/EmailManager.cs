@@ -206,7 +206,7 @@ internal class EmailManager
     private List<Message> ApplyFilters(MailAccount account, List<Message> emails)
     {
         _debugLogger($"Filtering by sender...");
-        emails = emails.Where(x => MailComesFromThePersonMonitoredPerson(x, account)).ToList();
+        emails = emails.Where(x => MailComesFromTheMonitoredPerson(x, account)).ToList();
         _debugLogger($"{emails.Count} emails left");
 
 
@@ -279,7 +279,7 @@ internal class EmailManager
         _connector(account.MqttTopicName, result);
     }
 
-    private bool MailComesFromThePersonMonitoredPerson(Message mail, MailAccount account)
+    private bool MailComesFromTheMonitoredPerson(Message mail, MailAccount account)
     {
         var sender = mail?.Msg?.From?.First().ToString().ToLower() ?? "";
         return sender.Length > 0 && sender.Contains(account.SenderName);

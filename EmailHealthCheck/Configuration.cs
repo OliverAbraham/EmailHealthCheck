@@ -1,4 +1,5 @@
-﻿using NLog;
+﻿using Abraham.ProgramSettingsManager;
+using NLog;
 using System.Data;
 
 namespace EmailHealthCheck;
@@ -8,9 +9,13 @@ public class Configuration
     public int CheckIntervalMinutes         { get; set; }
     public List<MailAccount>? MailAccounts  { get; set; } = null;
     
+    [Optional]
     public string HomenetServerURL          { get; set; }
+    [Optional]
     public string HomenetUsername           { get; set; }
+    [Optional]
     public string HomenetPassword           { get; set; }
+    [Optional]
     public int    HomenetTimeout            { get; set; }
     
     public string MqttServerURL             { get; set; }

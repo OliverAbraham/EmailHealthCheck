@@ -14,11 +14,11 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="Abraham.HomenetBase" Version="1.0.2" />
+    <PackageReference Include="Abraham.HomenetBase" Version="1.0.4" />
     <PackageReference Include="Abraham.Mail" Version="1.0.10" />
-    <PackageReference Include="Abraham.MQTTClient" Version="1.0.7" />
-    <PackageReference Include="Abraham.ProgramSettingsManager" Version="1.0.2" />
-    <PackageReference Include="Abraham.Scheduler" Version="1.0.0" />
+    <PackageReference Include="Abraham.MQTTClient" Version="1.0.14" />
+    <PackageReference Include="Abraham.ProgramSettingsManager" Version="1.0.4" />
+    <PackageReference Include="Abraham.Scheduler" Version="1.0.5" />
     <PackageReference Include="CommandLineParser" Version="2.9.1" />
     <PackageReference Include="Microsoft.VisualStudio.Azure.Containers.Tools.Targets" Version="1.19.6" />
     <PackageReference Include="NLog" Version="5.0.4" />

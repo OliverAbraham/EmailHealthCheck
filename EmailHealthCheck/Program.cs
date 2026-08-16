@@ -86,7 +86,7 @@ namespace EmailHealthCheck
 	        public string StateFile { get; set; } = "";
 
 
-	        [Option('n', "nlogconfig", Default = "nlog.config", Required = false, HelpText = 
+	        [Option('n', "nlogconfig", Default = "NLog.config", Required = false, HelpText = 
 	            """
 	            NLOG Configuration file (full path and filename).
 	            If you don't specify this option, the program will expect your configuration file 
@@ -116,7 +116,7 @@ namespace EmailHealthCheck
             HealthChecks();
             StartScheduler();
 
-            Console.ReadKey();
+            DomainLogic();
 
             StopScheduler();
         }
@@ -136,6 +136,33 @@ namespace EmailHealthCheck
                 .UseHomeAutomationConnector(HomeAutomationConnector);
 
             _manager.ReadStateFile();
+        }
+        #endregion
+
+
+
+        #region ------------- Domain logic ------------------------------------------------------------
+        private static void DomainLogic()
+        {
+            if (Console.IsInputRedirected)
+            {
+                _logger.Debug("Application is running.");
+                do
+                {
+                    Thread.Sleep(10 * 1000);
+                }
+                while (true);
+
+            }
+            else
+            {
+                _logger.Debug("Press any key to end the application.");
+                do
+                {
+                    Thread.Sleep(10 * 1000);
+                }
+                while (!Console.KeyAvailable);
+            }
         }
         #endregion
 

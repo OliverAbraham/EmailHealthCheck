@@ -2,7 +2,7 @@
 
   <PropertyGroup>
     <OutputType>Exe</OutputType>
-    <TargetFramework>net8.0</TargetFramework>
+    <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
 	  <LangVersion>11.0</LangVersion>
@@ -15,7 +15,7 @@
 
   <ItemGroup>
     <PackageReference Include="Abraham.HomenetBase" Version="1.0.4" />
-    <PackageReference Include="Abraham.Mail" Version="1.0.10" />
+    <PackageReference Include="Abraham.Mail" Version="1.0.11" />
     <PackageReference Include="Abraham.MQTTClient" Version="1.0.14" />
     <PackageReference Include="Abraham.ProgramSettingsManager" Version="1.0.4" />
     <PackageReference Include="Abraham.Scheduler" Version="1.0.5" />
